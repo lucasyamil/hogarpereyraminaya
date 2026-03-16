@@ -539,5 +539,24 @@ function bindE(){
 // ══════ START ══════
 R();
 </script>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getDatabase, ref, set, push, onValue } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAktuKbxpkFCPao6aKh9mJ_347-GLmYJXc",
+  authDomain: "ladespensa-c54f3.firebaseapp.com",
+  databaseURL: "https://ladespensa-c54f3-default-rtdb.firebaseio.com",
+  projectId: "ladespensa-c54f3",
+  storageBucket: "ladespensa-c54f3.firebasestorage.app",
+  messagingSenderId: "76466227390",
+  appId: "1:76466227390:web:e922104a864266622a36ef",
+  measurementId: "G-89XMCR08JX"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+</script>
 </body>
 </html>
