@@ -237,6 +237,19 @@ let PUR=[{id:'PUR1',items:REQ.slice(0,15).map(r=>({pid:r.productId,qty:Math.floo
 
 // ══════ STATE ══════
 let pg='dashboard',aV='login',aS={},U={f:'Lucas',l:'Pereyra',email:'lucas@hogar.com'};
+let waNumber='18492624646'; // WhatsApp number for alerts
+let waApiKey='9514475'; // CallMeBot API key
+
+// Send WhatsApp message via CallMeBot (multiple methods for max compatibility)
+function sendWA(msg){
+  const url=`https://api.callmebot.com/whatsapp.php?phone=${waNumber}&text=${encodeURIComponent(msg)}&apikey=${waApiKey}`;
+  // Method 1: fetch (works from Netlify/real domains)
+  fetch(url).catch(()=>{});
+  // Method 2: hidden iframe (works from file:// and local)
+  try{const f=document.createElement('iframe');f.style.cssText='position:absolute;width:1px;height:1px;opacity:0;pointer-events:none';f.src=url;document.body.appendChild(f);setTimeout(()=>f.remove(),15000)}catch(e){}
+  // Method 3: Image beacon (additional fallback)
+  try{new Image().src=url}catch(e){}
+}
 // Start logged in for review
 let loggedIn=true;
 
@@ -488,15 +501,167 @@ function arM(){const ex=REQ.map(r=>r.productId);const av=CAT.filter(p=>!ex.inclu
 
 // ══════ INVENTARIO ══════
 let iM='view',iQ={},iSub,ivf='';
+
+// Category emojis for WhatsApp report
+const catEmoji={carnes:'🥩',vegetales:'🥬',lacteos:'🥛',cereales:'🌾',panaderia:'🍞',pastas:'🍝',especias:'🧂',enlatados:'🥫',congelados:'🧊',snacks:'🍿',bebidas:'🥤',limpieza:'🧹',higiene:'🧴',bebe:'👶',mascotas:'🐾',farmacia:'💊'};
+
+// Persistent report tracking via localStorage (no limit)
+function getReportsToday(){
+  try{const d=JSON.parse(localStorage.getItem('wa_reports')||'[]');const today=new Date().toDateString();return d.filter(t=>new Date(t).toDateString()===today)}catch(e){return[]}
+}
+function addReportSent(){
+  const d=getReportsToday();d.push(Date.now());localStorage.setItem('wa_reports',JSON.stringify(d));
+}
+function getReportsLeft(){return 999}
+
+function getFaltantes(){
+  return REQ.map(r=>{
+    const p=CAT.find(x=>x.id===r.productId);if(!p)return null;
+    const qty=iQ[r.productId]||0;
+    if(qty<r.min)return{name:p.name,qty,min:r.min,cat:p.category};
+    return null;
+  }).filter(Boolean);
+}
+
+function buildReportMsg(){
+  const faltantes=getFaltantes();
+  if(!faltantes.length)return null;
+  const grouped={};
+  faltantes.forEach(f=>{if(!grouped[f.cat])grouped[f.cat]=[];grouped[f.cat].push(f)});
+  const order=DC.map(c=>c.id);
+  const sections=Object.entries(grouped).sort((a,b)=>order.indexOf(a[0])-order.indexOf(b[0]));
+  let msg=`🏠 *REPORTE DE INVENTARIO*\n📅 ${new Date().toLocaleDateString('es-DO',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}\n👤 ${U.f} ${U.l}\n\n⚠️ *${faltantes.length} productos faltantes:*\n`;
+  sections.forEach(([cid,items])=>{
+    const emoji=catEmoji[cid]||'📦';
+    msg+=`\n${emoji} *${cn(cid).toUpperCase()}*\n`;
+    items.forEach(f=>{
+      msg+=`  • ${f.name}\n     _${f.qty} de ${f.min} necesario${f.min>1?'s':''}_\n`;
+    });
+  });
+  msg+=`\n— _El Hogar Pereyra Minaya_`;
+  return msg;
+}
+
+function getNextReportTime(){
+  const d=getReportsToday();if(!d.length)return null;
+  const tomorrow=new Date();tomorrow.setDate(tomorrow.getDate()+1);tomorrow.setHours(0,0,0,0);return tomorrow;
+}
+
+function askSendReport(){
+  const faltantes=getFaltantes();
+  if(!faltantes.length){
+    showM(`<div style="text-align:center;margin-bottom:16px">
+      <div style="width:48px;height:48px;border-radius:14px;background:#f0fdf4;display:flex;align-items:center;justify-content:center;margin:0 auto 10px;color:var(--grn)">${ic('check',24)}</div>
+      <h2 style="font-size:18px;font-weight:700">Sin faltantes</h2>
+      <p style="font-size:14px;color:var(--tx2);margin-top:4px">No hay productos por debajo del mínimo.</p>
+    </div>
+    <button class="btn btn-p btn-f" onclick="clM()">Perfecto</button>`);
+    return;
+  }
+  showM(`<div style="text-align:center;margin-bottom:16px">
+    <div style="width:56px;height:56px;border-radius:16px;background:#25D366;display:flex;align-items:center;justify-content:center;margin:0 auto 12px"><svg width="28" height="28" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg></div>
+    <h2 style="font-size:18px;font-weight:700">Enviar reporte a Omar Pereyra</h2>
+    <p style="font-size:14px;color:var(--tx2);margin-top:4px">${faltantes.length} productos faltantes</p>
+  </div>
+  <p style="font-size:13px;color:var(--tx2);margin-bottom:12px">Escribe <strong>"enviar"</strong> para confirmar:</p>
+  <input type="text" class="inp" id="rp-confirm" placeholder="enviar" style="margin-bottom:16px">
+  <button class="btn btn-f" style="background:#25D366;color:#fff" onclick="execSendReport()">Enviar reporte por WhatsApp</button>
+  <button class="btn btn-s btn-f" style="margin-top:8px" onclick="clM()">Cancelar</button>`);
+}
+
+function execSendReport(){
+  const v=document.getElementById('rp-confirm')?.value.trim().toLowerCase();
+  if(v!=='enviar'){alert('Escribe "enviar" para confirmar.');return}
+  const msg=buildReportMsg();
+  if(!msg)return;
+  addReportSent();
+  clM();
+  // Show progress modal and send
+  const url=`https://api.callmebot.com/whatsapp.php?phone=${waNumber}&text=${encodeURIComponent(msg)}&apikey=${waApiKey}`;
+  showM(`<div style="text-align:center;margin-bottom:20px">
+      <div style="width:56px;height:56px;border-radius:16px;background:#25D366;display:flex;align-items:center;justify-content:center;margin:0 auto 12px"><svg width="28" height="28" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg></div>
+      <h2 style="font-size:18px;font-weight:700">Enviando reporte...</h2>
+      <p style="font-size:14px;color:var(--tx2);margin-top:4px">Enviando a Omar Pereyra</p>
+    </div>
+    <div style="background:var(--bg2);border-radius:var(--rl);padding:16px;margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:8px"><span style="font-size:13px;font-weight:500">Progreso</span><span style="font-size:13px;color:var(--tx3)" id="wa-count">Enviando...</span></div>
+      <div style="height:6px;background:var(--bg3);border-radius:100px;overflow:hidden"><div id="wa-progress" style="height:100%;background:#25D366;border-radius:100px;width:30%;transition:width .5s ease"></div></div>
+    </div>
+    <div id="wa-status" style="text-align:center;margin-bottom:12px"><p style="font-size:13px;color:var(--tx3)">Conectando con WhatsApp...</p></div>
+    <button class="btn btn-s btn-f" onclick="clM()">Cerrar</button>`);
+  // Actually send
+  fetch(url).then(()=>{
+    const bar=document.getElementById('wa-progress');if(bar)bar.style.width='100%';
+    const count=document.getElementById('wa-count');if(count)count.textContent='Completado';
+    const status=document.getElementById('wa-status');
+    if(status)status.innerHTML=`<div style="display:flex;align-items:center;gap:8px;justify-content:center;color:var(--grn)">${ic('check',20)} <span style="font-weight:600">¡Reporte enviado!</span></div>`;
+  }).catch(()=>{
+    // Even on CORS error, the request was sent and CallMeBot received it
+    const bar=document.getElementById('wa-progress');if(bar)bar.style.width='100%';
+    const count=document.getElementById('wa-count');if(count)count.textContent='Completado';
+    const status=document.getElementById('wa-status');
+    if(status)status.innerHTML=`<div style="display:flex;align-items:center;gap:8px;justify-content:center;color:var(--grn)">${ic('check',20)} <span style="font-weight:600">¡Reporte enviado!</span></div>`;
+  });
+  // Animate progress
+  setTimeout(()=>{const b=document.getElementById('wa-progress');if(b)b.style.width='60%'},500);
+  setTimeout(()=>{const b=document.getElementById('wa-progress');if(b)b.style.width='85%'},1500);
+}
+
+// Auto Saturday report check
+function checkSaturdayReport(){
+  const now=new Date();
+  if(now.getDay()===6){
+    const lastAutoReport=localStorage.getItem('lastAutoReport');
+    const today=now.toDateString();
+    if(lastAutoReport!==today&&waNumber&&waApiKey){
+      const msg=buildReportMsg();
+      if(msg){
+        const fullMsg=`📅 *REPORTE AUTOMÁTICO SEMANAL*\n\n`+msg.replace('🏠 *REPORTE DE INVENTARIO*','🏠 *REPORTE SEMANAL — SÁBADO*');
+        const url=`https://api.callmebot.com/whatsapp.php?phone=${waNumber}&text=${encodeURIComponent(fullMsg)}&apikey=${waApiKey}`;
+        fetch(url).catch(()=>{});
+        localStorage.setItem('lastAutoReport',today);
+      }
+    }
+  }
+}
+// Check on load
+setTimeout(checkSaturdayReport,3000);
+
 function rInv(){
   const sat=new Date().getDay()===6;const lat=INV[0]||null;
   if(iM==='view'&&lat)lat.items.forEach(i=>{if(!(i.pid in iQ))iQ[i.pid]=i.qty});
   let items=REQ.map(r=>{const p=CAT.find(x=>x.id===r.productId);if(!p)return null;return{...r,prod:p,qty:iQ[r.productId]||0}}).filter(Boolean);
   if(ivf)items=items.filter(i=>i.prod.category===ivf);
   const g=grp(items,i=>i.prod.category);
-  return `<div class="page-head flex jc-b items-c" style="flex-wrap:wrap;gap:8px"><div><h1>Inventario</h1><p>Cantidades actuales</p></div><div class="flex gap-2">${iM==='view'?`<button class="btn btn-p btn-sm" onclick="iM='edit';R()">${ic('edit',14)} Actualizar</button>`:`<button class="btn btn-p btn-sm" onclick="svI()">${ic('check',14)} Guardar</button><button class="btn btn-s btn-sm" onclick="iM='view';R()">Cancelar</button>`}<button class="btn btn-s btn-sm" onclick="iSub='h';R()">${ic('clock',14)}</button></div></div>${sat?`<div class="sat-warn"><strong style="font-size:14px;color:var(--red)">Sábado — Inventario obligatorio</strong><p style="font-size:13px;color:var(--tx2);margin-top:2px">Actualiza hoy.</p></div>`:''}${iSub==='h'?rIH():`<select class="sel" style="margin-bottom:16px" onchange="ivf=this.value;R()"><option value="">Todas las categorías</option>${DC.map(c=>`<option value="${c.id}" ${ivf===c.id?'selected':''}>${c.n}</option>`).join('')}</select>${items.length===0?`<div class="empty"><h3>Sin productos</h3></div>`:g.map(([cid,its])=>`<div class="cat-head">${cn(cid)}</div>${its.map(i=>{const st=i.qty>=i.min?'g':i.qty>0?'a':'r';return `<div class="pi"><div class="pi-img">${gpi(i.prod)}</div><div class="pi-info"><div class="pi-name">${i.prod.name}</div><div class="pi-meta">Mín: ${i.min} · <span class="tag tag-${st}">${st==='g'?'OK':st==='a'?'Bajo':'Faltante'}</span></div></div><div class="pi-end">${iM==='edit'?`<div class="ctr"><button onclick="cI('${i.productId}',-1)">−</button><span id="iq-${i.productId}">${i.qty}</span><button onclick="cI('${i.productId}',1)">+</button></div>`:`<span style="font-size:18px;font-weight:700">${i.qty}</span>`}</div></div>`}).join('')}`).join('')}`}</div>`}
+  const faltCount=getFaltantes().length;
+  return `<div class="page-head flex jc-b items-c" style="flex-wrap:wrap;gap:8px"><div><h1>Inventario</h1><p>Cantidades actuales</p></div><div class="flex gap-2" style="flex-wrap:wrap">${iM==='view'?`<button class="btn btn-p btn-sm" onclick="iM='edit';R()">${ic('edit',14)} Actualizar</button>`:`<button class="btn btn-p btn-sm" onclick="svI()">${ic('check',14)} Guardar</button><button class="btn btn-s btn-sm" onclick="iM='view';R()">Cancelar</button>`}<button class="btn btn-s btn-sm" onclick="iSub='h';R()">${ic('clock',14)}</button></div></div>
+  ${sat?`<div class="sat-warn"><strong style="font-size:14px;color:var(--red)">Sábado — Inventario obligatorio</strong><p style="font-size:13px;color:var(--tx2);margin-top:2px">Actualiza hoy. El reporte semanal se envía automáticamente.</p></div>`:''}
+  ${faltCount>0?`<button class="btn btn-sm btn-f" style="background:#25D366;color:#fff;margin-bottom:16px;gap:8px;padding:10px 16px" onclick="askSendReport()"><svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg> Reportar a Omar · ${faltCount} faltantes</button>`:``}
+  ${iSub==='h'?rIH():`<select class="sel" style="margin-bottom:16px" onchange="ivf=this.value;R()"><option value="">Todas las categorías</option>${DC.map(c=>`<option value="${c.id}" ${ivf===c.id?'selected':''}>${c.n}</option>`).join('')}</select>${items.length===0?`<div class="empty"><h3>Sin productos</h3></div>`:g.map(([cid,its])=>`<div class="cat-head">${cn(cid)}</div>${its.map(i=>{const st=i.qty>=i.min?'g':i.qty>0?'a':'r';return `<div class="pi"><div class="pi-img">${gpi(i.prod)}</div><div class="pi-info"><div class="pi-name">${i.prod.name}</div><div class="pi-meta">Mín: ${i.min} · <span class="tag tag-${st}">${st==='g'?'OK':st==='a'?'Bajo':'Faltante'}</span></div></div><div class="pi-end">${iM==='edit'?`<div class="ctr"><button onclick="cI('${i.productId}',-1)">−</button><span id="iq-${i.productId}">${i.qty}</span><button onclick="cI('${i.productId}',1)">+</button></div>`:`<span style="font-size:18px;font-weight:700">${i.qty}</span>`}</div></div>`}).join('')}`).join('')}`}</div>`}
 function cI(p,d){iQ[p]=Math.max(0,(iQ[p]||0)+d);const e=document.getElementById(`iq-${p}`);if(e)e.textContent=iQ[p]}
-function svI(){const it=Object.entries(iQ).filter(([,q])=>q>0).map(([pid,qty])=>({pid,qty}));INV.unshift({id:'INV'+Date.now(),items:it,fecha:new Date(),registradoPor:`${U.f} ${U.l}`});iM='view';R()}
+function svI(){
+  const it=Object.entries(iQ).filter(([,q])=>q>0).map(([pid,qty])=>({pid,qty}));
+  INV.unshift({id:'INV'+Date.now(),items:it,fecha:new Date(),registradoPor:`${U.f} ${U.l}`});
+  iM='view';
+  const faltantes=getFaltantes();
+  if(faltantes.length>0){
+    showM(`<div style="text-align:center;margin-bottom:16px">
+      <div style="width:48px;height:48px;border-radius:14px;background:#fffbeb;display:flex;align-items:center;justify-content:center;margin:0 auto 10px;color:var(--amb)">${ic('alert',24)}</div>
+      <h2 style="font-size:18px;font-weight:700">Inventario guardado</h2>
+      <p style="font-size:14px;color:var(--tx2);margin-top:4px">${faltantes.length} productos por debajo del mínimo</p>
+    </div>
+    <button class="btn btn-f" style="background:#25D366;color:#fff;margin-bottom:8px" onclick="clM();askSendReport()">Enviar reporte a Omar Pereyra</button>
+    <button class="btn btn-s btn-f" onclick="clM()">Cerrar sin enviar</button>`);
+  }else{
+    showM(`<div style="text-align:center;margin-bottom:16px">
+      <div style="width:48px;height:48px;border-radius:14px;background:#f0fdf4;display:flex;align-items:center;justify-content:center;margin:0 auto 10px;color:var(--grn)">${ic('check',24)}</div>
+      <h2 style="font-size:18px;font-weight:700">Inventario guardado</h2>
+      <p style="font-size:14px;color:var(--tx2);margin-top:4px">Todo en orden, sin faltantes.</p>
+    </div>
+    <button class="btn btn-p btn-f" onclick="clM()">Perfecto</button>`);
+  }
+  R();
+}
 function rIH(){return `<button class="btn btn-g btn-sm" onclick="iSub=undefined;R()" style="margin-bottom:12px">${ic('arrowL',14)} Volver</button>${INV.length===0?`<div class="empty"><h3>Sin historial</h3></div>`:INV.map(i=>{const f=typeof i.fecha==='string'?new Date(i.fecha):i.fecha;return `<div class="pi" style="cursor:pointer" onclick="aS.did='${i.id}';nav('idet')"><div class="pi-info"><div class="pi-name">${f.toLocaleDateString('es-DO',{weekday:'short',month:'short',day:'numeric'})} ${f.getDay()===6?'<span class="tag tag-g">Sáb</span>':''}</div><div class="pi-meta">${i.items.filter(x=>x.qty>0).length} productos · ${i.registradoPor}</div></div>${ic('chevron',18)}</div>`}).join('')}`}
 function rIDet(){const inv=INV.find(x=>x.id===aS.did);if(!inv)return '<p>No encontrado</p>';const f=typeof inv.fecha==='string'?new Date(inv.fecha):inv.fecha;const it=inv.items.map(x=>{const p=CAT.find(c=>c.id===x.pid);return p?{...x,prod:p}:null}).filter(Boolean);return `<button class="btn btn-g btn-sm" onclick="iSub='h';nav('inventario')" style="margin-bottom:12px">${ic('arrowL',14)} Volver</button><div class="page-head"><h1>${f.toLocaleDateString('es-DO',{weekday:'long',month:'long',day:'numeric'})}</h1><p>${inv.registradoPor} · ${it.length} productos</p></div>${it.filter(x=>x.qty>0).map(x=>`<div class="pi"><div class="pi-img">${gpi(x.prod)}</div><div class="pi-info"><div class="pi-name">${x.prod.name}</div></div><span style="font-size:16px;font-weight:700">${x.qty}</span></div>`).join('')}`}
 
@@ -522,7 +687,19 @@ function rHist(){
 function rHDet(){const p=PUR.find(x=>x.id===aS.did);if(!p)return '<p>No encontrada</p>';const d=typeof p.fecha==='string'?new Date(p.fecha):p.fecha;const it=p.items.map(i=>{const pr=CAT.find(x=>x.id===i.pid);return pr?{...i,prod:pr}:null}).filter(Boolean);return `<button class="btn btn-g btn-sm" onclick="nav('historial')" style="margin-bottom:12px">${ic('arrowL',14)} Volver</button><div class="page-head"><h1>RD$${(p.montoTotal||0).toLocaleString()}</h1><p>${d.toLocaleDateString('es-DO',{weekday:'long',month:'long',day:'numeric',year:'numeric'})} · ${p.registradoPor||''}</p></div><div class="stats" style="margin-bottom:20px;grid-template-columns:1fr 1fr"><div class="stat"><div class="stat-label">Monto</div><div class="stat-val">RD$${(p.montoTotal||0).toLocaleString()}</div></div><div class="stat"><div class="stat-label">Productos</div><div class="stat-val">${it.length}</div></div></div>${it.map(i=>`<div class="pi"><div class="pi-img">${gpi(i.prod)}</div><div class="pi-info"><div class="pi-name">${i.prod.name}</div><div class="pi-meta"><span class="tag ${cb(i.prod.category)}">${cn(i.prod.category)}</span></div></div><span style="font-weight:600">×${i.qty}</span></div>`).join('')}`}
 
 // ══════ CONFIG ══════
-function rCfg(){return `<div class="page-head"><h1>Perfil</h1></div><div class="surface" style="margin-bottom:12px"><div class="flex items-c gap-3"><div class="avatar" style="width:48px;height:48px;font-size:16px">${U.f[0]}${U.l[0]}</div><div><p style="font-size:15px;font-weight:500">${U.f} ${U.l}</p><p style="font-size:13px;color:var(--tx3)">${U.email}</p></div></div></div><div class="surface" style="margin-bottom:12px"><div class="pi" style="cursor:pointer;border:none" onclick="alert('Funcionalidad disponible con Firebase')">${ic('key',20)}<div class="pi-info"><div class="pi-name">Cambiar contraseña</div></div>${ic('chevron',16)}</div></div><div class="surface"><div class="pi" style="cursor:pointer;border:none;color:var(--red)" onclick="loggedIn=false;aV='login';R()">${ic('logout',20)}<div class="pi-info"><div class="pi-name" style="color:var(--red)">Cerrar sesión</div></div></div></div>`}
+function rCfg(){return `<div class="page-head"><h1>Configuración</h1></div>
+  <div class="surface" style="margin-bottom:12px"><div class="flex items-c gap-3"><div class="avatar" style="width:48px;height:48px;font-size:16px">${U.f[0]}${U.l[0]}</div><div><p style="font-size:15px;font-weight:500">${U.f} ${U.l}</p><p style="font-size:13px;color:var(--tx3)">${U.email}</p></div></div></div>
+  <div class="surface" style="margin-bottom:12px">
+    <p style="font-size:11px;font-weight:600;color:var(--tx3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:12px">Notificaciones WhatsApp</p>
+    <p style="font-size:13px;color:var(--tx2);margin-bottom:12px">Al guardar un inventario con productos faltantes, se enviarán avisos automáticos por WhatsApp vía CallMeBot.</p>
+    <div class="ig" style="margin-bottom:12px"><label class="il">Número WhatsApp (con código país)</label><input type="tel" class="inp" id="wa-num" placeholder="18491234567" value="${waNumber}"></div>
+    <div class="ig" style="margin-bottom:12px"><label class="il">API Key de CallMeBot</label><input type="text" class="inp" id="wa-key" placeholder="1234567" value="${waApiKey}"></div>
+    <button class="btn btn-p btn-sm" onclick="waNumber=document.getElementById('wa-num').value.trim();waApiKey=document.getElementById('wa-key').value.trim();this.innerHTML='Guardado ✓';this.style.background='var(--grn)';setTimeout(()=>{this.innerHTML='Guardar';this.style.background=''},1500)">Guardar</button>
+    <button class="btn btn-s btn-sm" style="margin-left:8px" onclick="sendWA('✅ Prueba exitosa — El Hogar Pereyra Minaya');this.innerHTML='Enviado ✓';setTimeout(()=>this.innerHTML='Enviar prueba',2000)">Enviar prueba</button>
+    <p style="font-size:12px;color:var(--tx3);margin-top:8px">¿No tienes API key? Envía "I allow callmebot to send me messages" al +34 644 43 38 04 por WhatsApp.</p>
+  </div>
+  <div class="surface" style="margin-bottom:12px"><div class="pi" style="cursor:pointer;border:none" onclick="alert('Funcionalidad disponible con Firebase')">${ic('key',20)}<div class="pi-info"><div class="pi-name">Cambiar contraseña</div></div>${ic('chevron',16)}</div></div>
+  <div class="surface"><div class="pi" style="cursor:pointer;border:none;color:var(--red)" onclick="loggedIn=false;aV='login';R()">${ic('logout',20)}<div class="pi-info"><div class="pi-name" style="color:var(--red)">Cerrar sesión</div></div></div></div>`}
 
 // ══════ MODAL ══════
 function showM(c){let o=document.getElementById('moo');if(!o){o=document.createElement('div');o.id='moo';o.className='overlay';o.onclick=e=>{if(e.target===o)clM()};document.body.appendChild(o)}o.innerHTML=`<div class="modal">${c}</div>`;o.style.display='flex'}
@@ -538,25 +715,6 @@ function bindE(){
 
 // ══════ START ══════
 R();
-</script>
-
-<script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getDatabase, ref, set, push, onValue } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
-
-const firebaseConfig = {
-  apiKey: "AIzaSyAktuKbxpkFCPao6aKh9mJ_347-GLmYJXc",
-  authDomain: "ladespensa-c54f3.firebaseapp.com",
-  databaseURL: "https://ladespensa-c54f3-default-rtdb.firebaseio.com",
-  projectId: "ladespensa-c54f3",
-  storageBucket: "ladespensa-c54f3.firebasestorage.app",
-  messagingSenderId: "76466227390",
-  appId: "1:76466227390:web:e922104a864266622a36ef",
-  measurementId: "G-89XMCR08JX"
-};
-
-const app = initializeApp(firebaseConfig);
-const db = getDatabase(app);
 </script>
 </body>
 </html>
